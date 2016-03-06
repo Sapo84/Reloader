@@ -4,7 +4,7 @@
 // @author      nihilvoid, Dan31, FabulousCupcake
 // @run-at      document-end
 // @include     http://hentaiverse.org/*
-// @version     1.3.1
+// @version     1.3.2b
 // @grant       none
 // ==/UserScript==
 
@@ -35,6 +35,8 @@ var settings = {
     effectDurations: true,      // Show buff/debuff durations
     gemIcon: true,              // Show gem/powerup, click on icon to use
     roundCounter: true,         // Show current round and rounds remaining
+    hvStateHP: true,            // Show enemy HP value
+    fluidHPBar: true,           // Shorten HP Bar width to easily see which monster has the most HP
 
     defaultAction: 0,           // Change the default action to a T1 spell
     // |     0     |      1      |   2    |     3      |  4   |   5   |     6      |
@@ -47,11 +49,9 @@ var settings = {
     stopWhenChanneling: true,   // Stop if you have channeling buff
 
     battleLog: true,            // Show battle log
-    //battleLogAppend: false,   //disabled for now (need to redo this without jQuery)
 
     skipToNextRound: true,      // Auto-advance to next round
     popupTime: 0,               // after `popupTime`ms
-    showPopup: false,           // Show that end of round popup?
 
     counterPlus: true           // HV-Counter-Plus ( shows turns, speed, time, exp, and credits at the end of game )
 };
@@ -92,7 +92,7 @@ function initialPageLoad() {
 
     // Insert stylesheet for Round Counter and Effect Duration
     var sheet = document.createElement('style');
-    sheet.innerHTML = '#round{position:absolute;left:1080px;top:15px;width:120px;font-size:20px;font-weight:bold;z-index:10;text-align:right}.duration{width:30px;display:inline-block;text-align:center;position:relative;margin-left:-30px;top:-4px}.duration>div{background:white;border:1px solid black;padding:0 2px;display:inline-block;min-width:8px;font-weight:bold;height:13px}';
+    sheet.innerHTML = '#round{position:absolute;left:1080px;top:15px;width:120px;font-size:20px;font-weight:bold;z-index:10;text-align:right}.duration{width:30px;display:inline-block;text-align:center;position:relative;margin-left:-30px;top:-4px}.duration>div{background:white;border:1px solid black;padding:0 2px;display:inline-block;min-width:8px;font-weight:bold;height:13px}.hvhp{width:inherit;display:block;position:absolute;top:0;text-align:center;font-weight:bold;color:#ff0;font-size:10px;z-index:999;white-space:nowrap;text-shadow:-1px -1px #000, -1px 1px #000, 1px -1px #000, 1px 1px #000}.chbd>img{height:12px;}';
 
     // Hide Battle Log
     if (!settings.battleLog) sheet.innerHTML += '#togpane_log {display: none}';
@@ -115,12 +115,13 @@ function initialPageLoad() {
     /* ============= ROUND COUNTER ============ */
     if (settings.roundCounter) {
         var logs = document.querySelector('#togpane_log tr:nth-last-child(2)').textContent;
-        if (/Round/.test(logs) && !sessionStorage.rounds) {
+        if (/Round/.test(logs)) {
             var round = logs.match(/Round ([\d\s\/]+)/)[1];
-            sessionStorage.setItem('rounds', round);
+            localStorage.setItem('rounds', round);
         } else {
-            var round = sessionStorage.getItem('rounds') || undefined;
+            var round = localStorage.getItem('rounds') || undefined;
         }
+
         if (round !== undefined) {
             var x = document.getElementById('mainpane').appendChild(document.createElement('div'));
             x.id = 'round';
@@ -200,29 +201,22 @@ function OnPageReload() {
     /* ============ HV COUNTER PLUS =========== */
     if (settings.counterPlus) {
         (function(){
-        var record = localStorage.record ? JSON.parse(localStorage.record) : {
-                'turns': 0,
-                'time': 0,
-                'EXP': 0,
-                'Credits': 0
-            },
+        var record = localStorage.record ? JSON.parse(localStorage.record) : {'turns': 0, 'time': 0, 'EXP': 0, 'Credits': 0 },
             pop = document.getElementsByClassName('btcp')[0],
-            set = function() {
-                localStorage.setItem('record', JSON.stringify(record));
-            },
-            build = function(item, point) {
-                record[item] = record[item] * 1 + point * 1;
-            };
+            set = function() { localStorage.setItem('record', JSON.stringify(record)); },
+            build = function(item, point) { record[item] = record[item] * 1 + point * 1; };
 
         if (!record.time) {
             build('time', Date.now());
             set();
         }
+
         if (pop) {
             var target, label, i = 0,
                 textC = document.querySelectorAll('#togpane_log .t3b'),
                 turn = document.querySelector('#togpane_log .t1').textContent;
             build('turns', turn);
+
             while (i < textC.length) {
                 target = textC[i].textContent;
                 if (/Victorious.$|Fleeing.$/.test(target)) break;
@@ -230,6 +224,7 @@ function OnPageReload() {
                 if (label) build(label[2], label[1]);
                 i++;
             }
+
             if (pop.getElementsByTagName('img')[0]) set();
             else {
                 var num = 0,
@@ -378,7 +373,7 @@ function OnPageReload() {
         if (mpane && !NoHoverClick()) {
             // Check if cursor is hovering on a monster
             var monster = getMonsterUnderCursor();
-            if ( monster ) {
+            if ( monster && monster.onclick !== null ) {
                 monster.click();
             } else {
                 // Add hover event listeners
@@ -394,6 +389,82 @@ function OnPageReload() {
     }
     /* ============ MOUSE MELEE END =========== */
 
+    /* ============== HV STATE HP ============= */
+    if(settings.hvStateHP) {
+        (function(){
+
+            function writeHP(index, value) {
+                var targ        = document.querySelectorAll('.btm5:first-child')[index];
+                if ( targ.children[0].src == 'http://ehgt.org/v/s/nbardead.png' ) return; // Skip if dead
+                var realHPperc  = targ.children[0].children[0].width/120;
+                var realHP      = Math.round( realHPperc * value );
+                var maxHP       = value;
+                var el = document.createElement('span');
+                el.classList.add('hvhp');
+                el.innerHTML = `${realHP} / ${maxHP}`;
+
+                targ.appendChild(el);
+            }
+            function changeHPBarWidth(index, value, maxvalue) {
+                var targ = document.querySelectorAll('.btm5:first-child')[index];
+                if ( targ.children[0].src == 'http://ehgt.org/v/s/nbardead.png' ) return; // Skip if dead
+                var realwidth   = targ.children[0].children[0].width;
+                var maxwidth    = 120;
+                realwidth   = Math.round(realwidth * value/maxvalue);
+                maxwidth    = Math.round( maxwidth * value/maxvalue);
+
+                targ.style.width = `${maxwidth}px`;
+                targ.children[0].style.width = `${maxwidth}px`;
+                targ.children[0].children[0].style.width = `${realwidth}px`;
+                targ.children[0].children[1].style.width = `${maxwidth}px`;
+            }
+            function fetchMonsterHPs() {
+                var i = 0;
+                var hpList = '';
+
+                while(true) {
+                    index = 3 + i;
+                    var log = document.querySelector(`#togpane_log tr:nth-last-child(${index})`);
+                    if ( log && /Spawned Monster/.test(log.textContent) ) {
+                        var hp = log.textContent.match(/HP=(\d+)/)[1];
+                        hpList += `${hp};`;
+                    } else {
+                        break;
+                    }
+                    i += 1;
+                }
+
+                if (hpList) localStorage.setItem('hpList', hpList);
+            }
+            function isBattleStart() {
+                var log = document.querySelector('#togpane_log tr:nth-last-child(1)').textContent;
+                if ( /Battle Start!/.test(log) ) return true;
+                return false;
+            }
+
+            // Get list of monster HP
+            if ( isBattleStart() ) fetchMonsterHPs();
+            var hpList = localStorage.getItem('hpList');
+            if( typeof hpList == "undefined" ) return;
+            hpList = hpList.split(';');
+
+            // Write HP to each monster
+            for(var i = 0; i<hpList.length-1; i+=1) {
+                writeHP(i, hpList[i]);
+            }
+
+            // Fluid HP bar
+            if(settings.fluidHPBar) {
+                var maxHP = Math.max.apply(null, hpList);
+                for(var i = 0; i<hpList.length-1; i+=1) {
+                    changeHPBarWidth(i, hpList[i], maxHP);
+                }
+            }
+
+        })();
+    }
+    /* ============ HV STATE HP END =========== */
+
 }
 
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ *\
@@ -407,15 +478,13 @@ function OnPageReload() {
 
 /* ============= SUBMIT ACTION ============ */
 function SubmitAction() {
-    // End of round, continue button pressed
-    if (document.getElementById("battleaction").value === 0) {
+    // Reload page if end of round detected ( marked by the existence of popup/navbar )
+    if (document.querySelector('.btcp') || document.querySelector('#navbar')) {
         window.location.href = window.location.href;
         return;
     }
 
-    //var loadStart = (new Date()).getTime();
-
-    // Serialize the form data
+    // Serialize form data
     var inputs = document.getElementsByTagName("input");
     var serializedForm = "";
     for (var i = 0; i < inputs.length; i++) {
@@ -424,7 +493,7 @@ function SubmitAction() {
         serializedForm += inputs[i].id + "=" + inputs[i].value;
     }
 
-    // Send the AJAX call
+    // Send XHR
     var r = new XMLHttpRequest();
     r.open("POST", "", true);
     r.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
@@ -440,12 +509,9 @@ function SubmitAction() {
     function updatePage(data) {
         var existing, newStuff, i;
         var replacements = '.cwbdv, .bte, #ckey_spirit, #ckey_defend, #togpane_magico, #togpane_magict, #togpane_item, #quickbar, #togpane_log';
-var monsterReplacements = '#mkey_0, #mkey_1, #mkey_2, #mkey_3, #mkey_4, #mkey_5, #mkey_6, #mkey_7, #mkey_8, #mkey_9';
+        var monsterReplacements = '#mkey_0, #mkey_1, #mkey_2, #mkey_3, #mkey_4, #mkey_5, #mkey_6, #mkey_7, #mkey_8, #mkey_9';
 
-        //var loadEnd = (new Date()).getTime();
-        //console.log("PostTime = " + (loadEnd - loadStart));
-
-        // Handle simple replacements
+        // Replace `replacements` elements on live document with the newly obtained data
         existing = document.querySelectorAll(replacements);
         newStuff = data.querySelectorAll(replacements);
         i = existing.length;
@@ -453,7 +519,8 @@ var monsterReplacements = '#mkey_0, #mkey_1, #mkey_2, #mkey_3, #mkey_4, #mkey_5,
             existing[i].parentNode.replaceChild(newStuff[i], existing[i]);
         }
 
-        // Handle monster replacements (don't replace dead monsters)
+        // Replace `monsterReplacements` elements on live document with the newly obtained data
+        // Don't update dead monsters
         existing = document.querySelectorAll(monsterReplacements);
         newStuff = data.querySelectorAll(monsterReplacements);
         i = existing.length;
@@ -463,12 +530,11 @@ var monsterReplacements = '#mkey_0, #mkey_1, #mkey_2, #mkey_3, #mkey_4, #mkey_5,
             }
         }
 
-        var popup = data.getElementsByClassName('btcp');
+        var popup  = data.getElementsByClassName('btcp');
         var navbar = data.getElementById('navbar');
 
-        // Navbar
+        // If there's navbar/popup in new content, show it
         if (navbar) {
-            // Show navbar
             var mainpane = document.getElementById('mainpane');
             mainpane.parentNode.insertBefore(navbar, mainpane);
             window.at_attach("parent_Character", "child_Character", "hover", "y", "pointer");
@@ -476,69 +542,46 @@ var monsterReplacements = '#mkey_0, #mkey_1, #mkey_2, #mkey_3, #mkey_4, #mkey_5,
             window.at_attach("parent_Battle", "child_Battle", "hover", "y", "pointer");
             window.at_attach("parent_Forge", "child_Forge", "hover", "y", "pointer");
         }
-
-        // Popup
         if (popup.length !== 0) {
-            if (!navbar) {
-                //End of round
-                if (settings.showPopup) {
-                    //Show popup
-                    var parent = document.getElementsByClassName('btt')[0];
-                    parent.insertBefore(popup[0], parent.firstChild);
-                }
-            } else {
-                //End of battle serie
-                //Show popup
-                var parent = document.getElementsByClassName('btt')[0];
-                parent.insertBefore(popup[0], parent.firstChild);
-            }
+            var parent = document.getElementsByClassName('btt')[0];
+            parent.insertBefore(popup[0], parent.firstChild);
         }
 
-        //var swapEnd = (new Date()).getTime();
-        //console.log("SwapTime = " + (swapEnd - loadEnd));
+        // for some strange reason, popup.length becomes 0 now, refetch it from document :/
+        popup = document.getElementsByClassName('btcp');
+        navbar = document.getElementById('navbar');
 
-        // Run all script modules again; new content has been loaded
+        // Run all script modules again
         OnPageReload();
 
-        if ((popup.length !== 0) || navbar) {
-            //Reset the round counter
-            sessionStorage.removeItem('rounds');
-            if ((popup.length !== 0) && !navbar) {
-
-                //End of round
-                if (settings.skipToNextRound) {
-
-                    //Auto-advance to next round
-                    if (settings.popupTime === 0) {
+        // Reload page if `skipToNextRound` and it is Round End
+        // Round End detection: popup exists and navbar does not
+        if ( popup.length !== 0 && !navbar ) {
+            /*
+            if ( settings.mouseMelee ) {
+                localStorage.setItem('curX', curX);
+                localStorage.setItem('curY', curY);
+            }
+            */
+            // Skip to next round
+            if ( settings.skipToNextRound ) {
+                if (settings.popupTime === 0) {
+                    window.location.href = window.location.href;
+                } else {
+                    setTimeout(function() {
                         window.location.href = window.location.href;
-                    } else {
-                        setTimeout(function() {
-                            window.location.href = window.location.href;
-                        }, settings.popupTime);
-                    }
-
-                    // Mousemelee Chrome keep-on-going fix
-                    // Store cursor position to localStorage
-                    // When the round changes, the whole page is reloaded, and
-                    //      curX and curY is set to its default value when it is declared.
-                    // This stops the keep-on-going mechanism. Storing the last known
-                    //      cursor position and loading them when the page fully reloads
-                    //      fixes this issue.
-                    if ( settings.mouseMelee ) {
-                        localStorage.setItem('curX', curX);
-                        localStorage.setItem('curY', curY);
-                    }
+                    }, settings.popupTime);
                 }
-            } else {
-                //End of battle serie
-                //Remove the record of Counter Plus
-                localStorage.removeItem('record');
             }
         }
 
-        //var customEnd = (new Date()).getTime();
-        //console.log("CustomTime = " + (customEnd - swapEnd));
-        //console.log("TotalTime = " + (customEnd - loadStart));
+        // Remove counter datas on Game End
+        // Game End detection: popup and navbar exists
+        if ( popup.length !== 0 && navbar ) {
+            localStorage.removeItem('record');
+            localStorage.removeItem('rounds');
+        }
+
     }
     /* ============ UPDATE PAGE END =========== */
 
