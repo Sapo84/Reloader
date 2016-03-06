@@ -4,7 +4,7 @@
 // @author      nihilvoid, Dan31, FabulousCupcake
 // @run-at      document-end
 // @include     http://hentaiverse.org/*
-// @version     1.3.2b
+// @version     mod_1.3.2b
 // @grant       none
 // ==/UserScript==
 
@@ -18,7 +18,6 @@
 // - fix battlelog append
 // - add Hoheneim's additions
 // - fix round counter display at end of battle serie
-// - add support for browsers other than Firefox (-> update mousemelee)
 
 // Credits and Sources
 // ------------------------
@@ -35,25 +34,27 @@ var settings = {
     effectDurations: true,      // Show buff/debuff durations
     gemIcon: true,              // Show gem/powerup, click on icon to use
     roundCounter: true,         // Show current round and rounds remaining
-    hvStateHP: true,            // Show enemy HP value
-    fluidHPBar: true,           // Shorten HP Bar width to easily see which monster has the most HP
+    hvStateHP: false,            // Show enemy HP value
+    fluidHPBar: false,           // Shorten HP Bar width to easily see which monster has the most HP
 
     defaultAction: 0,           // Change the default action to a T1 spell
     // |     0     |      1      |   2    |     3      |  4   |   5   |     6      |
     // | No Change | Fiery Blast | Freeze | Shockblast | Gale | Smite | Corruption |
 
     mouseMelee: true,           // MouseMelee ( hover on enemies to attack )
-    minHP: 0.4,                 // Stop if hp is below this threshold
-    minMP: 0.12,                // Stop if mp ...
+    chromeMouseMelee: false,    //Chrome specific fixes for mousemelee
+    minHP: 0.35,                 // Stop if hp is below this threshold
+    minMP: 0.2,                // Stop if mp ...
     minSP: 0.3,                 // Stop if sp ...
-    stopWhenChanneling: true,   // Stop if you have channeling buff
+    stopWhenChanneling: 2,   // Stop if you have channeling buff, 0 disable, >1 stop at channelling duration < number choosen
+	
 
-    battleLog: true,            // Show battle log
+    battleLog: false,            // Show battle log
 
     skipToNextRound: true,      // Auto-advance to next round
     popupTime: 0,               // after `popupTime`ms
 
-    counterPlus: true           // HV-Counter-Plus ( shows turns, speed, time, exp, and credits at the end of game )
+    counterPlus: false           // HV-Counter-Plus ( shows turns, speed, time, exp, and credits at the end of game )
 };
 
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ *\
@@ -71,13 +72,12 @@ function initialPageLoad() {
     // Hoverplay fix for Chrome
     // Constantly track cursor position to allow chrome to keep hitting a monster when hovering on one.
     // You'd have to keep moving your cursor without this fix
-    if ( settings.mouseMelee ) {
-
+    if ( settings.mouseMelee && settings.chromeMouseMelee) {
         // Get cursor position from the last round
         curX = localStorage.getItem('curX');
         curY = localStorage.getItem('curY');
         localStorage.removeItem('curX');
-        localStorage.removeItem('curY');
+        localStorage.removeItem('curY');        
 
         // Update curX and curY whenever cursor moves
         if (window.Event) document.captureEvents(Event.MOUSEMOVE);
@@ -325,6 +325,9 @@ function OnPageReload() {
         (function(){
 
         function getMonsterUnderCursor() {
+            if(!settings.chromeMouseMelee){
+                return false;
+            }
             var el = document.elementFromPoint(curX, curY);
             var result = false;
 
@@ -356,7 +359,7 @@ function OnPageReload() {
                 if (!settings.stopWhenChanneling) return false;
                 var status_icons = document.querySelectorAll('img[onmouseover^="battle.set_infopane_effect"]');
                 for (var i = 0, len = status_icons.length; i < len; i++) {
-                    if (/\bchanneling\b/i.test(status_icons[i].onmouseover.toString())) {
+                    if (/\bchanneling\b/i.test(status_icons[i].onmouseover.toString()) && status_icons[i].getAttribute('onmouseover').match(/, ([-\d]+)\)/)[1] < settings.stopWhenChanneling) {
                         //var img = document.querySelector('.btp').appendChild(document.createElement('img'));
                         //img.src = "http://ehgt.org/v/e/channeling.png";
                         //img.style.cssText = 'border: 3px solid cyan; margin-right:2px; margin-left:2px;';
@@ -532,9 +535,12 @@ function SubmitAction() {
 
         var popup  = data.getElementsByClassName('btcp');
         var navbar = data.getElementById('navbar');
+		
+		var popupLength = popup.length;
+		var navbarExists = !!navbar;
 
         // If there's navbar/popup in new content, show it
-        if (navbar) {
+        if (navbarExists) {
             var mainpane = document.getElementById('mainpane');
             mainpane.parentNode.insertBefore(navbar, mainpane);
             window.at_attach("parent_Character", "child_Character", "hover", "y", "pointer");
@@ -542,23 +548,26 @@ function SubmitAction() {
             window.at_attach("parent_Battle", "child_Battle", "hover", "y", "pointer");
             window.at_attach("parent_Forge", "child_Forge", "hover", "y", "pointer");
         }
-        if (popup.length !== 0) {
-            var parent = document.getElementsByClassName('btt')[0];
-            parent.insertBefore(popup[0], parent.firstChild);
+        if (popupLength !== 0) {
+            if(navbarExists || settings.popupTime || !settings.skipToNextRound) {
+                var parent = document.getElementsByClassName('btt')[0];
+                parent.insertBefore(popup[0], parent.firstChild);
+            }
         }
-
-        // for some strange reason, popup.length becomes 0 now, refetch it from document :/
-        popup = document.getElementsByClassName('btcp');
-        navbar = document.getElementById('navbar');
+		
+		// for some strange reason, popup.length becomes 0 now, refetch it from document :/
+        //popup = document.getElementsByClassName('btcp');
+        //navbar = document.getElementById('navbar');
+		//never found this bug in firefox, created two separate variables at the start to make sure it does not happen (to check)
 
         // Run all script modules again
         OnPageReload();
 
         // Reload page if `skipToNextRound` and it is Round End
         // Round End detection: popup exists and navbar does not
-        if ( popup.length !== 0 && !navbar ) {
+        if ( popupLength !== 0 && !navbarExists ) {
             /*
-            if ( settings.mouseMelee ) {
+            if (settings.mouseMelee && settings.chromeMouseMelee) {
                 localStorage.setItem('curX', curX);
                 localStorage.setItem('curY', curY);
             }
@@ -577,7 +586,7 @@ function SubmitAction() {
 
         // Remove counter datas on Game End
         // Game End detection: popup and navbar exists
-        if ( popup.length !== 0 && navbar ) {
+        if ( popupLength !== 0 && navbarExists ) {
             localStorage.removeItem('record');
             localStorage.removeItem('rounds');
         }
