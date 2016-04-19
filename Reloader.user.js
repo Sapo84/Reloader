@@ -3,8 +3,8 @@
 // @namespace   HVRLD3
 // @author      nihilvoid, Dan31, FabulousCupcake
 // @run-at      document-end
-// @include     http://hentaiverse.org/*
-// @version     1.3.2b
+// @include     /^https?:\/\/(alt|www)?\.?hentaiverse\.org.*$/
+// @version     1.3.3b
 // @grant       none
 // ==/UserScript==
 
@@ -15,16 +15,17 @@
 // http://hentaiverse.org/?s=Character&ss=se
 
 // Todo List:
-// - fix battlelog append
-// - add Hoheneim's additions
-// - fix round counter display at end of battle serie
-// - add support for browsers other than Firefox (-> update mousemelee)
+// - Hoverplay instead of mousemelee+defaultaction
+// - Fix round counter display at end of game
+// - Fix no buff blinking
 
 // Credits and Sources
 // ------------------------
 // Original reloader idea   : nihilvoid
 // Reloader maintainer      : Dan31
-// No Blinking  : HV Stat
+// No Blinking              : HV Stat
+// HV Counter Plus          : OMP, Superlatanium
+// HV State HP              : tatarime
 
 /* ======================================== *\
  * ============= CONFIGURATION ============ *
@@ -43,17 +44,19 @@ var settings = {
     // | No Change | Fiery Blast | Freeze | Shockblast | Gale | Smite | Corruption |
 
     mouseMelee: true,           // MouseMelee ( hover on enemies to attack )
-    minHP: 0.4,                 // Stop if hp is below this threshold
-    minMP: 0.12,                // Stop if mp ...
+    minHP: 0.35,                // Stop if hp is below this threshold
+    minMP: 0.2 ,                // Stop if mp ...
     minSP: 0.3,                 // Stop if sp ...
     stopWhenChanneling: true,   // Stop if you have channeling buff
+    chromeFix: true,            // Fix MM things on chrome by manually tracking cursor movement
 
     battleLog: true,            // Show battle log
 
     skipToNextRound: true,      // Auto-advance to next round
     popupTime: 0,               // after `popupTime`ms
 
-    counterPlus: true           // HV-Counter-Plus ( shows turns, speed, time, exp, and credits at the end of game )
+    counterPlus: true,          // HV-Counter-Plus ; log and show turn/speed/time/exp/credits
+    counterPlusSave: true       // Store additional datas for Income Summary by Superlatanium
 };
 
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ *\
@@ -71,7 +74,7 @@ function initialPageLoad() {
     // Hoverplay fix for Chrome
     // Constantly track cursor position to allow chrome to keep hitting a monster when hovering on one.
     // You'd have to keep moving your cursor without this fix
-    if ( settings.mouseMelee ) {
+    if ( settings.mouseMelee && settings.chromeFix ) {
 
         // Get cursor position from the last round
         curX = localStorage.getItem('curX');
@@ -103,17 +106,20 @@ function initialPageLoad() {
 
     /* ============== NO BLINKING ============= */
     if (settings.noBlinking) {
+    (function(){
         window.addEventListener('beforescriptexecute', function(e) {
             if (/battle\.set_infopane\("Battle Time"\)/.test(e.target.innerHTML)) {
                 e.preventDefault();
                 window.removeEventListener(e.type, arguments.callee, true);
             }
         }, true);
+    })();
     }
     /* ============ NO BLINKING END =========== */
 
     /* ============= ROUND COUNTER ============ */
     if (settings.roundCounter) {
+        (function(){
         var logs = document.querySelector('#togpane_log tr:nth-last-child(2)').textContent;
         if (/Round/.test(logs)) {
             var round = logs.match(/Round ([\d\s\/]+)/)[1];
@@ -136,6 +142,7 @@ function initialPageLoad() {
                     break;
             }
         }
+        })();
     }
     /* =========== ROUND COUNTER END ========== */
 
@@ -201,32 +208,51 @@ function OnPageReload() {
     /* ============ HV COUNTER PLUS =========== */
     if (settings.counterPlus) {
         (function(){
-        var record = localStorage.record ? JSON.parse(localStorage.record) : {'turns': 0, 'time': 0, 'EXP': 0, 'Credits': 0 },
-            pop = document.getElementsByClassName('btcp')[0],
-            set = function() { localStorage.setItem('record', JSON.stringify(record)); },
-            build = function(item, point) { record[item] = record[item] * 1 + point * 1; };
+        var record = (localStorage.record) ?
+            JSON.parse(localStorage.record) :
+            {'turns': 0, 'time': 0, 'EXP': 0, 'Credits': 0, 'rounds': 0 };
+
+        var pop = document.getElementsByClassName('btcp')[0];
+
+        function set() {
+            record.rounds++;
+            localStorage.setItem('record', JSON.stringify(record));
+        }
+
+        function build(item, point) {
+            record[item] = ( parseInt(record[item]) || 0 ) + parseInt(point);
+            // parseInt(null) is NaN, add `NaN || 0` so it becomes 0.
+        }
 
         if (!record.time) {
             build('time', Date.now());
             set();
         }
 
+        // If there's a popup...
         if (pop) {
+
+            // Fetch amount of turns taken to complete the round
             var target, label, i = 0,
                 textC = document.querySelectorAll('#togpane_log .t3b'),
                 turn = document.querySelector('#togpane_log .t1').textContent;
-            build('turns', turn);
+                build('turns', turn);
 
+            // And find for credit drops
             while (i < textC.length) {
                 target = textC[i].textContent;
-                if (/Victorious.$|Fleeing.$/.test(target)) break;
+                if (/Victorious.$|Fleeing.$/.test(target)) break; // stop at end
                 label = target.match(/(\d+) ([EC]\w+).$/);
                 if (label) build(label[2], label[1]);
                 i++;
             }
 
-            if (pop.getElementsByTagName('img')[0]) set();
-            else {
+            // If there's an image in the popup ( the continue button; signifying "not game end" )...
+            if (pop.getElementsByTagName('img')[0]) {
+                // Save it to storage and we're done
+                set();
+            } else {
+                // No image! It's game end! Display the stats and then burn it.
                 var num = 0,
                     runTime = Math.floor((Date.now() - record.time) / 1000),
                     text = pop.getElementsByClassName('fd4'),
@@ -240,7 +266,8 @@ function OnPageReload() {
                 for (var key in record) {
                     var div = result.appendChild(document.createElement('div'));
                     div.style.cssText = 'display:inline-block;margin-bottom:7px;';
-                    if (!(num % 2)) div.style.marginRight = '20px';
+                    div.style.marginRight = '7px';
+                    div.style.marginLeft = '7px';
                     if (key == 'time') {
                         var hour = ('0' + Math.floor(runTime / 3600) % 100).slice(-2),
                             min = ('0' + Math.floor(runTime / 60) % 60).slice(-2),
@@ -254,6 +281,22 @@ function OnPageReload() {
                         if (!num) div.textContent += ' (' + ((Math.floor((record[key] / runTime) * 1000)) / 1000).toFixed(2) + ' t/s)';
                     }
                     num++;
+                }
+
+                // Counter Plus Save for _Income Summary_ by superlatanium
+                if ( settings.counterPlusSave ) {
+                    var cpsLogs = (localStorage.counterPlusSaveLogs) ?
+                        JSON.parse(localStorage.counterPlusSaveLogs) :
+                        [];
+
+                    cpsLogs.push({
+                        rounds: record.rounds,
+                        turns: record.turns,
+                        runTime: runTime,
+                        timestamp: Date.now()
+                    });
+
+                    localStorage.counterPlusSaveLogs = JSON.stringify(cpsLogs);
                 }
             }
         }
@@ -372,16 +415,19 @@ function OnPageReload() {
         var mpane = document.getElementById('monsterpane');
         if (mpane && !NoHoverClick()) {
             // Check if cursor is hovering on a monster
-            var monster = getMonsterUnderCursor();
-            if ( monster && monster.onclick !== null ) {
-                monster.click();
-            } else {
-                // Add hover event listeners
-                var m = mpane.getElementsByClassName("btm1");
-                for (var i = 0; i < m.length; i++) {
-                    if (m[i].hasAttribute('onclick')) {
-                        m[i].setAttribute('onmouseover', m[i].getAttribute('onclick'));
-                    }
+            if ( settings.chromeFix ) {
+                var monster = getMonsterUnderCursor();
+                if ( monster && monster.onclick !== null ) {
+                    monster.click();
+                    return;
+                }
+            }
+
+            // Add hover event listeners
+            var m = mpane.getElementsByClassName("btm1");
+            for (var i = 0; i < m.length; i++) {
+                if (m[i].hasAttribute('onclick')) {
+                    m[i].setAttribute('onmouseover', m[i].getAttribute('onclick'));
                 }
             }
         }
@@ -395,7 +441,7 @@ function OnPageReload() {
 
             function writeHP(index, value) {
                 var targ        = document.querySelectorAll('.btm5:first-child')[index];
-                if ( targ.children[0].src == 'http://ehgt.org/v/s/nbardead.png' ) return; // Skip if dead
+                if ( targ.children[0].nodeName == 'IMG' ) return;                                // Skip if dead
                 var realHPperc  = targ.children[0].children[0].width/120;
                 var realHP      = Math.round( realHPperc * value );
                 var maxHP       = value;
@@ -407,7 +453,7 @@ function OnPageReload() {
             }
             function changeHPBarWidth(index, value, maxvalue) {
                 var targ = document.querySelectorAll('.btm5:first-child')[index];
-                if ( targ.children[0].src == 'http://ehgt.org/v/s/nbardead.png' ) return; // Skip if dead
+                if ( targ.children[0].nodeName == 'IMG' ) return;                                // Skip if dead
                 var realwidth   = targ.children[0].children[0].width;
                 var maxwidth    = 120;
                 realwidth   = Math.round(realwidth * value/maxvalue);
@@ -465,6 +511,8 @@ function OnPageReload() {
     }
     /* ============ HV STATE HP END =========== */
 
+    /* =========== EXTERNAL SCRIPTS =========== */
+    window.dispatchEvent(new CustomEvent('Reloader_reloaded'));
 }
 
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ *\
@@ -533,8 +581,11 @@ function SubmitAction() {
         var popup  = data.getElementsByClassName('btcp');
         var navbar = data.getElementById('navbar');
 
+        var popupLength = popup.length; // this is because popup.length is changed after insertBefore() is called for some reason.
+        var navbarExists = !!navbar;
+
         // If there's navbar/popup in new content, show it
-        if (navbar) {
+        if (navbarExists) {
             var mainpane = document.getElementById('mainpane');
             mainpane.parentNode.insertBefore(navbar, mainpane);
             window.at_attach("parent_Character", "child_Character", "hover", "y", "pointer");
@@ -542,21 +593,21 @@ function SubmitAction() {
             window.at_attach("parent_Battle", "child_Battle", "hover", "y", "pointer");
             window.at_attach("parent_Forge", "child_Forge", "hover", "y", "pointer");
         }
-        if (popup.length !== 0) {
+        if (popupLength !== 0) {
+            // Here we're loading popup to the page regardless of the skipNextRound / popupTime settings
+            // even though it is "skipped" and not even visible; slightly increasing load time.
+            // This is because OnPageReload() will later call scripts,
+            // some of which will require popup in the document ( Counter Plus )
             var parent = document.getElementsByClassName('btt')[0];
             parent.insertBefore(popup[0], parent.firstChild);
         }
-
-        // for some strange reason, popup.length becomes 0 now, refetch it from document :/
-        popup = document.getElementsByClassName('btcp');
-        navbar = document.getElementById('navbar');
 
         // Run all script modules again
         OnPageReload();
 
         // Reload page if `skipToNextRound` and it is Round End
         // Round End detection: popup exists and navbar does not
-        if ( popup.length !== 0 && !navbar ) {
+        if ( popupLength !== 0 && !navbarExists ) {
             /*
             if ( settings.mouseMelee ) {
                 localStorage.setItem('curX', curX);
@@ -577,7 +628,7 @@ function SubmitAction() {
 
         // Remove counter datas on Game End
         // Game End detection: popup and navbar exists
-        if ( popup.length !== 0 && navbar ) {
+        if ( popupLength !== 0 && navbarExists ) {
             localStorage.removeItem('record');
             localStorage.removeItem('rounds');
         }
@@ -593,6 +644,9 @@ if ( document.getElementById('togpane_log') ) {
 
     // Init
     initialPageLoad();
+
+    // External Script Init
+    window.dispatchEvent(new CustomEvent('Reloader_page_reloaded'));
 
     // Replace submit with custom submit
     document.getElementById("battleform").submit = SubmitAction;
