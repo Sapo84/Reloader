@@ -26,6 +26,7 @@
 // No Blinking              : HV Stat
 // HV Counter Plus          : OMP, Superlatanium
 // HV State HP              : tatarime
+// Random mods              : Sapo84
 
 /* ======================================== *\
  * ============= CONFIGURATION ============ *
@@ -45,7 +46,7 @@ var settings = {
 
     mouseMelee: true,           // MouseMelee ( hover on enemies to attack )
     minHP: 0.35,                // Stop if hp is below this threshold
-    minMP: 0.2 ,                // Stop if mp ...
+    minMP: 0.2,                 // Stop if mp ...
     minSP: 0.3,                 // Stop if sp ...
     stopWhenChanneling: 2,   // Stop if you have channeling buff, 0 disable, >1 stop at channelling duration < number choosen
     chromeFix: true,            // Fix MM things on chrome by manually tracking cursor movement
@@ -212,7 +213,8 @@ function OnPageReload() {
             JSON.parse(localStorage.record) :
             {'turns': 0, 'time': 0, 'EXP': 0, 'Credits': 0, 'rounds': 0 };
 
-        var pop = document.getElementsByClassName('btcp')[0];
+		//get the popup from the page if written (endgame) otherwise from the window object
+        var pop = document.getElementsByClassName('btcp')[0] || window.hvpop;
 
         function set() {
             record.rounds++;
@@ -578,6 +580,7 @@ function SubmitAction() {
             }
         }
 
+		window.hvpop = null;
         var popup  = data.getElementsByClassName('btcp');
         var navbar = data.getElementById('navbar');
 
@@ -595,10 +598,12 @@ function SubmitAction() {
         }
         if (popupLength !== 0) {
             if(!navbarExists && !settings.popupTime && settings.skipToNextRound) {
-				popup[0].style.display = "none";
+                window.hvpop = popup[0];
 			}
+            else{
 			var parent = document.getElementsByClassName('btt')[0];
-			parent.insertBefore(popup[0], parent.firstChild);			
+			parent.insertBefore(popup[0], parent.firstChild);	
+            }
         }
 
         // Run all script modules again
