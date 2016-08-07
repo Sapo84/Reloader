@@ -257,6 +257,7 @@ function OnPageReload() {
                 // No image! It's game end! Display the stats and then burn it.
                 var num = 0,
                     runTime = Math.floor((Date.now() - record.time) / 1000),
+                    runTimeFloat = (Date.now() - record.time) / 1000,
                     text = pop.getElementsByClassName('fd4'),
                     len = text.length,
                     result = pop.appendChild(document.createElement('div'));
@@ -280,7 +281,7 @@ function OnPageReload() {
                         var total = record[key] + '';
                         while (total != (total = total.replace(/^(\d+)(\d{3})/, '$1,$2')));
                         div.textContent = total + ' ' + key.toLowerCase();
-                        if (!num) div.textContent += ' (' + ((Math.floor((record[key] / runTime) * 1000)) / 1000).toFixed(2) + ' t/s)';
+                        if (!num) div.textContent += ' (' + ((Math.floor((record[key] / runTimeFloat) * 1000)) / 1000).toFixed(2) + ' t/s)';
                     }
                     num++;
                 }
