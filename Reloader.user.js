@@ -40,9 +40,9 @@ var settings = {
     hvStateHP: false,            // Show enemy HP value
     fluidHPBar: false,           // Shorten HP Bar width to easily see which monster has the most HP
 
-    defaultAction: 0,           // Change the default action to a T1 spell
-    // |     0     |      1      |   2    |     3      |  4   |   5   |     6      |
-    // | No Change | Fiery Blast | Freeze | Shockblast | Gale | Smite | Corruption |
+    defaultAction: 0,           // Change the default action to spell rotation (0 = default action)
+    // to enable spell rotation use an array like [153,152,151] (holy mage spell rotation)
+    // you can read the values in Crackling Cast since they are very well organized
 
     mouseMelee: true,           // MouseMelee ( hover on enemies to attack )
     minHP: 0.35,                // Stop if hp is below this threshold
@@ -175,35 +175,22 @@ function OnPageReload() {
         window.battle.lock_action(caller, 1, 'magic', id);
         window.battle.set_hostile_subattack(id);
     }
-    switch (settings.defaultAction) {
-        //Default (Attack)
-        case 0:
-            break;
-        case 1:
-            //Fiery Blast
-            changeDefault(111);
-            break;
-        case 2:
-            //Freeze
-            changeDefault(121);
-            break;
-        case 3:
-            //Shockblast
-            changeDefault(131);
-            break;
-        case 4:
-            //Gale
-            changeDefault(141);
-            break;
-        case 5:
-            //Smite
-            changeDefault(151);
-            break;
-        case 6:
-            //Corruption
-            changeDefault(161);
-            break;
+	
+	// canCast function, adapted from CracklingCast
+    function canCast(id) {
+		var el = document.getElementById(id);
+		return !!el && el.hasAttribute('onclick');
     }
+	
+	if (settings.defaultAction) {
+		for (var i = 0; i < settings.defaultAction.length; i++) {
+    		if (canCast(settings.defaultAction[i])) {
+				changeDefault(settings.defaultAction[i]);
+				break;
+			}
+		}
+	}
+
     /* ========== DEFAULT ACTION END ========== */
 
     /* ============ HV COUNTER PLUS =========== */
