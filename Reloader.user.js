@@ -456,8 +456,6 @@ var Core = {
      * @constructor
      */
     onPageReload: function () {
-        Temp.battleLoaded = false;
-
         // Reinitialize the battle manager
         window.battle = new window.Battle();
         window.battle.clear_infopane();
@@ -571,6 +569,8 @@ var Core = {
      * Custom submit action
      */
     submitAction: function () {
+        Temp.battleLoaded = false;
+
         // Reload page if end of round detected ( marked by the existence of popup/navbar )
         if (document.querySelector('.btcp') || document.querySelector('#navbar')) {
             Utility.reloadPage();
